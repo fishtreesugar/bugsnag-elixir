@@ -44,6 +44,7 @@ defmodule Bugsnag.Payload do
         fetch_option(options, :hostname, "unknown")
       )
       |> add_metadata(Keyword.get(options, :metadata))
+      |> add_grouping_hash()
       |> add_release_stage(fetch_option(options, :release_stage, "production"))
       |> add_notify_release_stages(fetch_option(options, :notify_release_stages, ["production"]))
       |> add_app_type(fetch_option(options, :app_type))
@@ -60,6 +61,25 @@ defmodule Bugsnag.Payload do
         stacktrace: format_stacktrace(stacktrace, options)
       }
     ])
+  end
+
+  defp add_grouping_hash(event) do
+    grouping_key =
+      Enum.flat_map(event.exceptions, fn exception ->
+        [inspect(exception.errorClass) | extract_file_and_method_names(exception.stacktrace)]
+      end)
+
+    grouping_hash =
+      :crypto.hash(:sha, grouping_key)
+      |> Base.encode16(case: :lower)
+
+    Map.put_new(event, :groupingHash, grouping_hash)
+  end
+
+  defp extract_file_and_method_names(stacktrace) do
+    Enum.flat_map(stacktrace, fn %{file: file, method: method} ->
+      [file, method]
+    end)
   end
 
   defp add_payload_version(event), do: Map.put(event, :payloadVersion, "2")
