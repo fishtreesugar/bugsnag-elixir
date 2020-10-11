@@ -42,7 +42,7 @@ defmodule Bugsnag.Payload do
         fetch_option(options, :hostname, "unknown")
       )
       |> add_metadata(Keyword.get(options, :metadata))
-      |> add_grouping_hash()
+      |> add_grouping_hash(stacktrace)
       |> add_release_stage(fetch_option(options, :release_stage, "production"))
       |> add_notify_release_stages(fetch_option(options, :notify_release_stages, ["production"]))
       |> add_app_type(fetch_option(options, :app_type))
@@ -78,10 +78,10 @@ defmodule Bugsnag.Payload do
     ])
   end
 
-  defp add_grouping_hash(event) do
+  defp add_grouping_hash(event, stacktrace) do
     grouping_key =
       Enum.flat_map(event.exceptions, fn exception ->
-        [inspect(exception.errorClass) | extract_file_and_method_names(exception.stacktrace)]
+        [inspect(exception.errorClass) | extract_file_and_method_names(stacktrace)]
       end)
 
     grouping_hash =
@@ -92,10 +92,23 @@ defmodule Bugsnag.Payload do
   end
 
   defp extract_file_and_method_names(stacktrace) do
-    Enum.flat_map(stacktrace, fn %{file: file, method: method} ->
-      [file, method]
+    Enum.flat_map(stacktrace, fn
+      {module, fun, arity, location} when is_integer(arity) ->
+        [file_name_from_location(location), Exception.format_mfa(module, fun, arity)]
+
+      {module, fun, args, location} when is_list(args) ->
+        [file_name_from_location(location), Exception.format_mfa(module, fun, length(args))]
+
+      {fun, arity, location} when is_integer(arity) ->
+        [file_name_from_location(location), Exception.format_fa(fun, arity)]
+
+      {fun, args, location} when is_list(args) ->
+        [file_name_from_location(location), Exception.format_fa(fun, length(args))]
     end)
   end
+
+  defp file_name_from_location([]), do: "unknown"
+  defp file_name_from_location(file: file, line: _line), do: file
 
   defp add_payload_version(event), do: Map.put(event, :payloadVersion, "2")
 
