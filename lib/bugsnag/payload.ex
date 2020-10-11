@@ -30,12 +30,10 @@ defmodule Bugsnag.Payload do
   end
 
   defp add_event(payload, exception, stacktrace, options) do
-    error = Exception.normalize(:error, exception)
-
     event =
       Map.new()
       |> add_payload_version
-      |> add_exception(error, stacktrace, options)
+      |> add_exception(exception, stacktrace, options)
       |> add_severity(Keyword.get(options, :severity))
       |> add_context(Keyword.get(options, :context))
       |> add_user(Keyword.get(options, :user))
@@ -53,7 +51,24 @@ defmodule Bugsnag.Payload do
     Map.put(payload, :events, [event])
   end
 
+  defp add_exception(
+         event,
+         %Bugsnag.Exception{error_class: error_class, message: message},
+         stacktrace,
+         options
+       ) do
+    Map.put(event, :exceptions, [
+      %{
+        errorClass: error_class,
+        message: message,
+        stacktrace: format_stacktrace(stacktrace, options)
+      }
+    ])
+  end
+
   defp add_exception(event, exception, stacktrace, options) do
+    exception = Exception.normalize(:error, exception)
+
     Map.put(event, :exceptions, [
       %{
         errorClass: exception.__struct__,
