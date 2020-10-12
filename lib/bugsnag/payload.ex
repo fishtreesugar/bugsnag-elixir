@@ -34,6 +34,7 @@ defmodule Bugsnag.Payload do
       Map.new()
       |> add_payload_version
       |> add_exception(exception, stacktrace, options)
+      |> may_add_grouping_hash(exception, stacktrace)
       |> add_severity(Keyword.get(options, :severity))
       |> add_context(Keyword.get(options, :context))
       |> add_user(Keyword.get(options, :user))
@@ -42,7 +43,6 @@ defmodule Bugsnag.Payload do
         fetch_option(options, :hostname, "unknown")
       )
       |> add_metadata(Keyword.get(options, :metadata))
-      |> add_grouping_hash(stacktrace)
       |> add_release_stage(fetch_option(options, :release_stage, "production"))
       |> add_notify_release_stages(fetch_option(options, :notify_release_stages, ["production"]))
       |> add_app_type(fetch_option(options, :app_type))
@@ -60,7 +60,7 @@ defmodule Bugsnag.Payload do
     Map.put(event, :exceptions, [
       %{
         errorClass: error_class,
-        message: message,
+        message: sanitize(message),
         stacktrace: format_stacktrace(stacktrace, options)
       }
     ])
@@ -78,11 +78,14 @@ defmodule Bugsnag.Payload do
     ])
   end
 
-  defp add_grouping_hash(event, stacktrace) do
+  defp may_add_grouping_hash(event, _exception, []) do
+    event
+  end
+
+  defp may_add_grouping_hash(event, exception, stacktrace) do
     grouping_key =
-      Enum.flat_map(event.exceptions, fn exception ->
-        [inspect(exception.errorClass) | extract_file_and_method_names(stacktrace)]
-      end)
+      [inspect(error_class(exception)) | extract_file_and_method_names(stacktrace)]
+      |> List.flatten()
 
     grouping_hash =
       :crypto.hash(:sha, grouping_key)
@@ -90,6 +93,9 @@ defmodule Bugsnag.Payload do
 
     Map.put_new(event, :groupingHash, grouping_hash)
   end
+
+  defp error_class(%Bugsnag.Exception{error_class: error_class}), do: error_class
+  defp error_class(exception), do: exception.__struct__
 
   defp extract_file_and_method_names(stacktrace) do
     Enum.flat_map(stacktrace, fn
