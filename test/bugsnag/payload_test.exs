@@ -8,7 +8,7 @@ defmodule Bugsnag.PayloadTest do
       # You've been warned!
       raise "an error occurred"
     rescue
-      exception -> [exception, System.stacktrace()]
+      exception -> [exception, __STACKTRACE__]
     end
   end
 
@@ -39,12 +39,22 @@ defmodule Bugsnag.PayloadTest do
     refute Map.has_key?(get_event(), :metaData)
   end
 
+  test "it adds error_class when given" do
+    error_class = CustomError
+    assert error_class == get_exception(error_class: error_class).errorClass
+  end
+
+  test "errorClass defaults to the exception struct module" do
+    [exception, _] = get_problem()
+    assert exception.__struct__ == get_exception().errorClass
+  end
+
   test "it generates correct stacktraces" do
     {exception, stacktrace} =
       try do
         Enum.join(3, 'million')
       rescue
-        exception -> {exception, System.stacktrace()}
+        exception -> {exception, __STACKTRACE__}
       end
 
     %{events: [%{exceptions: [%{stacktrace: stacktrace}]}]} =
@@ -78,7 +88,7 @@ defmodule Bugsnag.PayloadTest do
       try do
         Module.concat(Elixir, "Movies").watch(:thor, 3, "ragnarok\n")
       rescue
-        exception -> {exception, System.stacktrace()}
+        exception -> {exception, __STACKTRACE__}
       end
 
     %{events: [%{exceptions: [%{stacktrace: stacktrace}]}]} =
@@ -96,7 +106,7 @@ defmodule Bugsnag.PayloadTest do
       try do
         Module.concat(Elixir, "Bugsnag.Payload").non_existent_func()
       rescue
-        exception -> {exception, System.stacktrace()}
+        exception -> {exception, __STACKTRACE__}
       end
 
     %{events: [%{exceptions: [%{stacktrace: stacktrace}]}]} =
@@ -109,6 +119,34 @@ defmodule Bugsnag.PayloadTest do
 
     assert file1 == file2
     assert ln1 == ln2
+  end
+
+  test "it generates correct stacktraces for :erl_stdlib_errors" do
+    {exception, stacktrace} =
+      try do
+        :ets.select(:does_not_exist, [{{:"$1", :_}, [], [:"$1"]}])
+      rescue
+        exception -> {exception, __STACKTRACE__}
+      end
+
+    %{events: [%{exceptions: [%{stacktrace: stacktrace}]}]} =
+      Payload.new(exception, stacktrace, [])
+
+    [
+      %{
+        file: "test/bugsnag/payload_test.exs",
+        lineNumber: _,
+        inProject: false,
+        method: ":ets.select(:does_not_exist, [{{:\"$1\", :_}, [], [:\"$1\"]}])"
+      },
+      %{
+        file: "test/bugsnag/payload_test.exs",
+        lineNumber: _,
+        method:
+          ~s(Bugsnag.PayloadTest."test it generates correct stacktraces for :erl_stdlib_errors"/1)
+      }
+      | _
+    ] = stacktrace
   end
 
   test "reports stack frames as not being in-project by default" do
